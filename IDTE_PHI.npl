@@ -1,4 +1,37 @@
-#!/usr/local/bin/perl -w
+#!/usr/bin/perl -w
+use strict;
+
+=head1 NAME
+
+tblastn_copy_finder
+
+=head1 USAGE
+
+ tblastn_copy_finder.pl <options> <specification> <default>
+ 
+ -i or --input      Input file 
+ -q or --query      Query file
+ -s or --subject    Subject File
+ -e or --maxevalue  Max E-value (default 0.01)
+ -M or --minprot    Min Protein
+ -d or --intron     Max Intron Distance (8000 default)
+ -I or --idtag      ID Tag
+ -n or --maxoutput  Max output
+ -l or --flankleft  Left Flank length (60)
+ -r or --flankright Right Flank length (60)
+ -s or --subregion  Sub region length
+ -L or --maxoverlap Max overlap (30)
+ -o or --output     Output
+ -h or --help       Print help
+
+=cut
+
+# Jason Stajich changes
+# 2010-11-28
+# Changes
+# 1.  Use strict
+# 2. Getopt::Long
+
 # Written by vehell
 # 12/22/2009
 # 1) When there are too many copies, only handle 10 times of the $Max_Output of them: last if($Num > $Max_Output * 10); 
@@ -22,90 +55,103 @@
 # write a single vertion to get rid of long introns, improve it later
 #
 #-----------------------------------------------------
-use Getopt::Std;
+use Getopt::Long;
 #-----------------------------------------------------
+
+my $Input = '';
+my $Query_File = "soymar1.aa"; # sensible defaults?
+my $Sbjct_File = ''; # sensible defaults?
+my $Max_Evalue = 0.01;
+my $Min_Pro = 0.7;
+my $Max_Intron = 8000;
+my $ID_Tag = 'ZMar'; # Sensible default?
+my $Max_Output = 30;
+my $Flank_L = 60;
+my $Flank_R = 60;
+my $Sub_Region_Len = 0;
+my $Max_Overlap = 30;
+my $Output;
 getopts("i:q:D:e:M:d:I:n:l:r:s:L:o:h:");
+GetOptions(
+	'i|input:s'            => \$Input,
+ 	'q|query:s'            => \$Query_File,	
+	'D|subject:s'          => \$Sbjct_File,
+	'e|maxevalue:f'	       => \$Max_Evalue,
+	'M|minpro:f'           => \$Min_Pro,
+	'd|intron|maxintron:i' => \$Max_Intron,
+	'I|idtag|ID:s'         => \$ID_Tag,
+	'n|maxoutput:i'        => \$Max_Output,
+	'l|left|flankleft:i'   => \$Flank_L,
+	'r|right|flankright:i' => \$Flank_R,
+	's|subregion:i'        => \$Sub_Region_Len,
+	'L|maxoverlap:i'       => \$Max_Overlap,
+	'o|output:s'           => \$Output,
+	'h|help'               => sub { usage() },
+	);
 
-$Input          = defined $opt_i ? $opt_i : "";
-$Query_File     = defined $opt_q ? $opt_q : "soymar1.aa";
-$Sbjct_File     = defined $opt_D ? $opt_D : "/scratch/vehell/Data_Room/Rice/rice";
-$Max_Evalue     = defined $opt_e ? $opt_e : 0.01; 
-$Min_Pro        = defined $opt_M ? $opt_M : 0.7;
-$Max_Intron     = defined $opt_d ? $opt_d : 8000;
-$ID_Tag         = defined $opt_I ? $opt_I : "ZMmar";
-$Max_Output     = defined $opt_n ? $opt_n : 30;
-$Flank_L        = defined $opt_l ? $opt_l : 60;
-$Flank_R        = defined $opt_r ? $opt_r : 60;
-$Sub_Region_Len = defined $opt_s ? $opt_s : 0;
-$Max_Overlap    = defined $opt_L ? $opt_L : 30;
-$Output         = defined $opt_o ? $opt_o : "protein_copies";
-$Help           = defined $opt_h ? $opt_h : "";
-
-usuage() if((!$Input)||($Help));
+usage() unless $Input;
 
 #--------------------------------------------------------
 #--------------- In this script, given E value is parsed into scitisfic notion if it < 1. 
 #--------------- if given E >= 1 will be kept the same
 #--------------- an e evalue that has "e" would be considered smaller than one doesn't
 if($Max_Evalue =~ /e/) {
-	
-}elsif($Max_Evalue =~ /^0\./){
-	$Power_Num = 0;
-	while($Max_Evalue < 1) {
-		$Max_Evalue *= 10;
-		$Power_Num ++;
-	}
-	$Max_Evalue = $Max_Evalue."e-".$Power_Num;
+} elsif($Max_Evalue =~ /^0\./){
+ $Max_Evalue = sprintf("%e",$Max_Evalue);
 }
 
 #--------------------------------------------------------
 
 
 #-------------- load query sequences --------------------
-open(QF, "$Query_File")||die "$!\n";
+# These two can be replaced with
+# my $qf = Bio::SeqIO->new(-format => 'fasta', -file => $Query_File);
+# while( my $seq = $qf->next_seq ) { $Query_Name_Seq{$seq->id} = $seq->seqi; $Query_Length{$seq->id} = $seq->length }
+my (%Query_Name_Seq,%Query_Length);
+{ 
+open(QF, $Query_File)||die "Cannot open $Query_File: $!\n";
+my $Name;
 while(<QF>) {
-	$Line = $_;
-	if(/^>(\S+)/) {
+	if (/^>(\S+)/) {
 		$Name = $1;
 	}else{
-		$Line =~ s/\s+$//g;
-		$Query_Name_Seq{$Name} .= $Line;
+		s/\s+$//;
+		$Query_Name_Seq{$Name} .= $_;
 	}
 }
 close(QF);
 
-foreach(keys(%Query_Name_Seq)) {
-	$Query_Length{$_} = length($Query_Name_Seq{$_});
+for my $id (keys(%Query_Name_Seq)) {
+	$Query_Length{$id} = length($Query_Name_Seq{$id});
 }
-
+}
 #-----------------Load blast result---------------------------------
+my (%Query_Sbjcts,%Query_Sbjct_Matches);
 print "Load blast result\n";
-tblastn_loader($Input);
+&tblastn_loader($Input);
 
 #------------------------------------ find the putative connections among blast hits -------------
 print "find the putative connections among blast hits\n";
-foreach(keys(%Query_Sbjcts)) {  
-	$Query = $_;
-	@Matched_Sbjcts = split(/ /, $Query_Sbjcts{$_});
-	foreach(@Matched_Sbjcts) {
-		$Sbjct           = $_;
+for my $Query ( keys %Query_Sbjcts) {  
+	my @Matched_Sbjcts = split(/ /, $Query_Sbjcts{$_});
+	for my $Sbjct (@Matched_Sbjcts) {
+		my %B_E_For         = ();
+		my %B_E_Rev         = ();
+		my @S_Begins_Plus   = ();
+		my @S_Begins_Minus  = ();
+		my @Begins_Sorted   = ();
+		my %First_Score     = ();
+		my $Plus_Match_Num  = 0;
+		my $Minus_Match_Num = 0;
+		
+		# You should be using array refs here I think
+		my @Match_Pairs = split(/   /, $Query_Sbjct_Matches{$Query." ".$Sbjct});
 
-		%B_E_For         = ();
-		%B_E_Rev         = ();
-		@S_Begins_Plus   = ();
-		@S_Begins_Minus  = ();
-		@Begins_Sorted   = ();
-		%First_Score     = ();
-		$Plus_Match_Num  = 0;
-		$Minus_Match_Num = 0;
+		for my $pair (@Match_Pairs) {
 
-		@Match_Pairs = split(/   /, $Query_Sbjct_Matches{$Query." ".$Sbjct});
-
-		foreach(@Match_Pairs) {
-
-			($Query_Info, $Sbjct_Info)  = split(/  /, $_);             # $Match_Info = $Q_Begin." ".$Q_Match." ".$Q_End."  ".$S_Begin." ".$S_Match." ".$S_End."   ";
-			($Q_Begin, $Q_Match, $Q_End) = split(/ /, $Query_Info);    # $Q_Begin." ".$Q_Match." ".$Q_End
-			($S_Begin, $S_Match, $S_End, $Frame, $Score) = split(/ /, $Sbjct_Info);
+			my ($Query_Info, $Sbjct_Info)  = split(/  /, $pair);             # $Match_Info = $Q_Begin." ".$Q_Match." ".$Q_End."  ".$S_Begin." ".$S_Match." ".$S_End."   ";
+			my ($Q_Begin, $Q_Match, $Q_End) = split(/ /, $Query_Info);    # $Q_Begin." ".$Q_Match." ".$Q_End
+			my ($S_Begin, $S_Match, $S_End, $Frame, $Score) = split(/ /, $Sbjct_Info);
 			
 			if($Frame > 0) {
 				$S_Begin_Adjusted = $S_Begin;
@@ -243,22 +289,22 @@ close(IF);
 
 #----------------------find the longest/best homolog for each loc in genome (when there are mutiple queries) ...
 print "find the longest/best homolog for each loc in genome\n";
-$Num = 0;
-foreach(keys(%Query_Sbjct_Copy_Infor)) {
+my $Num = 0;
+for my $info (keys(%Query_Sbjct_Copy_Infor)) {
 #	print "$_ -> $Query_Sbjct_Copy_Infor{$_}\n";
-	($Query, $Sbjct, $Start_Loc) = split(/ /, $_);
-	$Query_Len = $Query_Length{$Query};
-	$Copy_Score = 0;
-	$Copy_Len   = 0;
-	@Matches = split(/  /, $Query_Sbjct_Copy_Infor{$_});
+	my ($Query, $Sbjct, $Start_Loc) = split(/ /, $info);
+	my $Query_Len = $Query_Length{$Query};
+ 	my $Copy_Score = 0;
+	my $Copy_Len   = 0;
+	my @Matches = split(/  /, $Query_Sbjct_Copy_Infor{$info});
 	
-	@Query_Match_Region = ();
-	for($i = 0; $i < $Query_Len; $i++) {
+	my @Query_Match_Region = ();
+	for(my $i = 0; $i < $Query_Len; $i++) {
 		$Query_Match_Region[$i] = 0;
 	}
-
-	foreach(@Matches) {
-		($Q_Begin, $Q_Match, $Q_End, $S_Begin, $S_Match, $S_End, $Frame, $Score) = split(/ /, $_);
+	# Arrayref would be better here
+	for my $m (@Matches) {
+		my ($Q_Begin, $Q_Match, $Q_End, $S_Begin, $S_Match, $S_End, $Frame, $Score) = split(/ /, $_);
 
 		$Copy_Score += $Score;
 
@@ -266,7 +312,7 @@ foreach(keys(%Query_Sbjct_Copy_Infor)) {
 			$Query_Match_Region[$i-1] = 1;
 		}
 	}
-	$Stop_Loc = $S_Begin < $S_End ? $S_End : $S_Begin;
+	my $Stop_Loc = $S_Begin < $S_End ? $S_End : $S_Begin;
 	
 	foreach(@Query_Match_Region) {
 		$Copy_Len ++ if($_ == 1);
@@ -425,32 +471,13 @@ close(OF);
 close(SF);
 #-----------------------------------------------------
 #-----------------------------------------------------
-sub usuage {
-    print "\nHi, need some help?\n";
-    print STDERR <<"    _EOT_";
 
-    Usage :tblastn_copy_finder.pl <options> <specification> <default>
-
-	\$Input          = defined \$opt_i ? \$opt_i : "";
-	\$Query_File     = defined \$opt_q ? \$opt_q : "";
-	\$Sbjct_File     = defined \$opt_D ? \$opt_D : "/scratch/vehell/Data_Room/Rice/rice";
-	\$Max_Evalue     = defined \$opt_e ? \$opt_e : 0.01; 
-	\$Min_Pro        = defined \$opt_M ? \$opt_M : 0.7;
-	\$Distance       = defined \$opt_d ? \$opt_d : 8000;
-	\$ID_Tag         = defined \$opt_I ? \$opt_I : "ZMmar";
-	\$Max_Output     = defined \$opt_n ? \$opt_n : 30;
-	\$Flank_L        = defined \$opt_l ? \$opt_l : 60;
-	\$Flank_R        = defined \$opt_r ? \$opt_r : 60;
-	\$Sub_Region_Len = defined \$opt_s ? \$opt_s : 0;
-	\$Max_Overlap    = defined \$opt_L ? \$opt_L : 30;
-	\$Output         = defined \$opt_o ? \$opt_o : "protein_copies";
-	\$Help           = defined \$opt_h ? \$opt_h : "";
-
-    _EOT_
-    exit(1)
+sub usage { 
+ exec('perldoc', $0);
+ exit;
 }
 
-#-----------------------------------------------------
+#---
 sub tblastn_loader {
 	my($Input) = @_;
 	my($Head, $Q_Match, $S_Match, $Line, $Query, $No_Hits, $Query_Len, $Sbjct, $Sbject_Len, $Database);
@@ -618,6 +645,8 @@ sub DNA_reverser {
 
 #-------------------------------------------
 sub E_value_comparison {
+# I don't understand why this function exists? Why are you reinventing <=> ? 
+# --JasonS
 	my($E1, $E2) = @_;
 	my($Compare_Result, $E1_Head, $E1_Tail, $E2_Head, $E2_Tail);
 	$Compare_Result = ">";
