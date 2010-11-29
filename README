@@ -1,0 +1,19 @@
+USAGE
+ See http://target.iplantcollaborative.org/mite_hunter.html
+Especially the manual at
+ http://target.iplantcollaborative.org/mite_hunter/mite_hunter_manual.pdf
+
+
+
+This is the code for MITE-Hunter from:
+
+ Han Y, Wessler SR. MITE-Hunter: a program for discovering miniature
+inverted-repeat transposable elements from genomic sequences. 2010;
+NAR. DOI: 10.1093/nar/gkq862.
+
+=CHANGES=
+
+* [Nov-Dec 2010] Changes underway from JE Stajich for Perl cleanup and
+streamlining of code.
+
+
